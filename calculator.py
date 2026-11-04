@@ -1,15 +1,10 @@
-"""Консольный калькулятор с историей операций.
-Итоговый проект, Кейс 1.
-"""
-
-from __future__ import annotations
+"""Консольный калькулятор с историей операций."""
 
 import logging
 import sys
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, getcontext
 from pathlib import Path
-from typing import Optional, Callable
 
 getcontext().prec = 28
 
@@ -35,114 +30,63 @@ MENU = """
 8. Квадратный корень
 0. Выход
 
-В операциях вводите числа по одному.
-Пустая строка или 'stop' — завершить операцию.
+Пустая строка или 'stop' завершает ввод чисел.
 """
 
+STOP_WORDS = {"stop", "стоп", "q", "exit", "выход"}
+YES_WORDS = {"да", "д", "yes", "y"}
 
-def out(*args, **kwargs) -> None:
-    """print с принудительным сбросом буфера."""
-    kwargs.setdefault("flush", True)
-    print(*args, **kwargs)
+# Название, знак и функция операции
+BINARY_OPERATIONS = {
+    "1": ("Сложение", "+", lambda a, b: a + b),
+    "2": ("Вычитание", "-", lambda a, b: a - b),
+    "3": ("Умножение", "*", lambda a, b: a * b),
+    "4": ("Деление", "/", lambda a, b: a / b),
+}
 
 
-def read_decimal(prompt: str) -> Decimal:
-    """Запрашивает число и возвращает Decimal. Без возможности остановки."""
+def out(*args):
+    """Выводит текст и сразу сбрасывает буфер."""
+    print(*args, flush=True)
+
+
+def read_number(prompt):
+    """Читает конечное число или возвращает None для завершения ввода."""
     while True:
-        sys.stdout.write(prompt)
-        sys.stdout.flush()
-        raw = sys.stdin.readline()
-        if raw == "":
-            raise EOFError("Стандартный ввод закрыт.")
-        raw = raw.strip().replace(",", ".")
-        if not raw:
-            out("Ошибка: пустой ввод. Введите число.")
-            continue
+        raw = input(prompt).strip().replace(",", ".")
+        if not raw or raw.lower() in STOP_WORDS:
+            return None
+
         try:
-            value = Decimal(raw)
-        except (InvalidOperation, ValueError):
-            out("Ошибка: введите корректное число, например 10 или 2.5.")
-            continue
-        if not value.is_finite():
-            out("Ошибка: число должно быть конечным.")
-            continue
-        return value
+            number = Decimal(raw)
+            if number.is_finite():
+                return number
+        except InvalidOperation:
+            pass
+
+        out("Ошибка: введите корректное конечное число или 'stop'.")
 
 
-def read_decimal_or_stop(prompt: str) -> Optional[Decimal]:
-    """Запрашивает число или возвращает None, если пользователь хочет остановиться."""
-    while True:
-        sys.stdout.write(prompt)
-        sys.stdout.flush()
-        raw = sys.stdin.readline()
-        if raw == "":
-            return None
-        raw = raw.strip()
-        if not raw:
-            return None
-        if raw.lower() in {"stop", "стоп", "q", "exit", "выход"}:
-            return None
-        raw = raw.replace(",", ".")
-        try:
-            value = Decimal(raw)
-        except (InvalidOperation, ValueError):
-            out("Ошибка: введите корректное число или 'stop' для завершения.")
-            continue
-        if not value.is_finite():
-            out("Ошибка: число должно быть конечным.")
-            continue
-        return value
+def format_number(number):
+    """Убирает незначащие нули из представления числа."""
+    if number == number.to_integral_value():
+        return str(number.quantize(Decimal("1")))
+    return format(number.normalize(), "f")
 
 
-def format_number(value: Decimal) -> str:
-    """Форматирует Decimal без лишних нулей."""
-    if value == value.to_integral():
-        return str(value.quantize(Decimal("1")))
-    text = format(value.normalize(), "f")
-    if "." in text:
-        text = text.rstrip("0").rstrip(".")
-    return text or "0"
-
-
-def add(a: Decimal, b: Decimal) -> Decimal:
-    return a + b
-
-
-def subtract(a: Decimal, b: Decimal) -> Decimal:
-    return a - b
-
-
-def multiply(a: Decimal, b: Decimal) -> Decimal:
-    return a * b
-
-
-def divide(a: Decimal, b: Decimal) -> Decimal:
-    """Делит a на b; выбрасывает ZeroDivisionError при b == 0."""
-    if b == 0:
-        raise ZeroDivisionError("деление на ноль невозможно")
-    return a / b
-
-
-def power(a: Decimal, b: Decimal) -> Decimal:
-    """Возводит a в степень b."""
-    try:
+def calculate(operation, a, b):
+    """Выполняет бинарную операцию с проверкой деления на ноль."""
+    if operation == "/":
+        if b == 0:
+            raise ZeroDivisionError("деление на ноль невозможно")
+        return a / b
+    if operation == "^":
         return a ** b
-    except ArithmeticError as exc:
-        raise ArithmeticError(f"не удалось возвести в степень: {exc}") from exc
+    raise ValueError(f"Неизвестная операция: {operation}")
 
 
-def sqrt_decimal(a: Decimal) -> Decimal:
-    """Извлекает квадратный корень из a."""
-    if a < 0:
-        raise ArithmeticError("квадратный корень из отрицательного числа не существует")
-    try:
-        return a.sqrt()
-    except ArithmeticError as exc:
-        raise ArithmeticError(f"не удалось извлечь корень: {exc}") from exc
-
-
-def append_history(expression: str, result: Decimal) -> None:
-    """Добавляет запись в history.txt."""
+def save_history(expression, result):
+    """Сохраняет результат операции в файл."""
     line = (
         f"{datetime.now():%Y-%m-%d %H:%M:%S} | "
         f"{expression} = {format_number(result)}\n"
@@ -150,190 +94,185 @@ def append_history(expression: str, result: Decimal) -> None:
     try:
         with HISTORY_FILE.open("a", encoding="utf-8") as file:
             file.write(line)
-    except OSError as exc:
-        out(f"Не удалось сохранить историю: {exc}")
+    except OSError:
+        out("Не удалось сохранить историю.")
         logging.exception("Ошибка записи истории")
 
 
-def show_history() -> None:
-    """Выводит историю операций."""
-    if not HISTORY_FILE.exists():
-        out("\nИстория пуста.")
-        return
+def show_step(expression, result):
+    """Показывает, сохраняет и записывает в лог результат."""
+    formatted = format_number(result)
+    out(f"\n{expression} = {formatted}")
+    out(f"Результат: {formatted}")
+    save_history(expression, result)
+    logging.info("Операция: %s = %s", expression, formatted)
+
+
+def show_history():
+    """Показывает сохранённые операции."""
     try:
         content = HISTORY_FILE.read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        out(f"Не удалось прочитать историю: {exc}")
+    except FileNotFoundError:
+        content = ""
+    except OSError:
+        out("Не удалось прочитать историю.")
         logging.exception("Ошибка чтения истории")
         return
+
     if not content:
         out("\nИстория пуста.")
         return
+
     out("\n--- История операций ---")
     out(content)
     out("------------------------")
 
 
-def clear_history() -> None:
-    """Очищает файл истории после подтверждения."""
+def clear_history():
+    """Очищает историю после подтверждения."""
     if not HISTORY_FILE.exists():
         out("\nИстория уже пуста.")
         return
-    sys.stdout.write("Очистить историю? (да/нет): ")
-    sys.stdout.flush()
-    answer = sys.stdin.readline().strip().lower()
-    if answer not in {"да", "д", "yes", "y"}:
+
+    if input("Очистить историю? (да/нет): ").strip().lower() not in YES_WORDS:
         out("Очистка отменена.")
         return
+
     try:
         HISTORY_FILE.unlink()
         out("История очищена.")
         logging.info("История очищена")
-    except OSError as exc:
-        out(f"Не удалось очистить историю: {exc}")
+    except OSError:
+        out("Не удалось очистить историю.")
         logging.exception("Ошибка очистки истории")
 
 
-def show_step(expression: str, result: Decimal) -> None:
-    """Выводит и сохраняет один шаг вычисления."""
-    formatted_result = format_number(result)
-    out("")
-    out(f"{expression} = {formatted_result}")
-    out(f"Результат: {formatted_result}")
-    append_history(expression, result)
-    logging.info("Операция: %s = %s", expression, formatted_result)
-
-
-def run_binary_operation(name: str, symbol: str, func: Callable[[Decimal, Decimal], Decimal]) -> None:
-    """Непрерывная бинарная операция с накоплением результата."""
+def run_binary_operation(name, symbol, function):
+    """Выполняет последовательность операций с накоплением результата."""
     out(f"\n{name}")
-    out("Вводите числа по одному. Пустая строка или 'stop' — завершить.")
-
-    current = read_decimal_or_stop("Введите первое число (или stop): ")
+    current = read_number("Введите первое число (или stop): ")
     if current is None:
         return
 
     while True:
-        next_val = read_decimal_or_stop("Введите следующее число (или stop): ")
-        if next_val is None:
+        next_number = read_number("Введите следующее число (или stop): ")
+        if next_number is None:
             break
+
         try:
-            result = func(current, next_val)
-        except ZeroDivisionError as exc:
-            out(f"Ошибка: {exc}.")
-            logging.warning("Ошибка в операции %s: %s %s %s", name, current, symbol, next_val)
-            continue
-        except ArithmeticError as exc:
-            out(f"Ошибка: {exc}.")
-            logging.warning("Ошибка в операции %s: %s %s %s", name, current, symbol, next_val)
+            result = function(current, next_number)
+        except ArithmeticError as error:
+            out(f"Ошибка: {error}.")
+            logging.warning("Ошибка операции %s: %s", name, error)
             continue
 
-        expression = f"{format_number(current)} {symbol} {format_number(next_val)}"
+        expression = (
+            f"{format_number(current)} {symbol} "
+            f"{format_number(next_number)}"
+        )
         show_step(expression, result)
         current = result
 
 
-def run_power_operation() -> None:
-    """Непрерывное возведение в степень: пары основание — показатель."""
+def run_power_operation():
+    """Вычисляет степени для последовательных пар чисел."""
     out("\nВозведение в степень")
-    out("Вводите основание и показатель. Пустая строка или 'stop' — завершить.")
-
     while True:
-        base = read_decimal_or_stop("Введите основание (или stop): ")
+        base = read_number("Введите основание (или stop): ")
         if base is None:
             break
-        exponent = read_decimal_or_stop("Введите показатель степени (или stop): ")
+        exponent = read_number("Введите показатель степени (или stop): ")
         if exponent is None:
             break
 
         try:
-            result = power(base, exponent)
-        except ArithmeticError as exc:
-            out(f"Ошибка: {exc}.")
-            logging.warning("Ошибка возведения в степень: %s ^ %s", base, exponent)
+            result = calculate("^", base, exponent)
+        except ArithmeticError as error:
+            out(f"Ошибка: {error}.")
+            logging.warning("Ошибка возведения в степень: %s", error)
             continue
 
         expression = f"{format_number(base)} ^ {format_number(exponent)}"
         show_step(expression, result)
 
 
-def run_sqrt_operation() -> None:
-    """Непрерывное извлечение квадратного корня."""
+def run_sqrt_operation():
+    """Вычисляет квадратные корни введённых чисел."""
     out("\nКвадратный корень")
-    out("Вводите числа. Пустая строка или 'stop' — завершить.")
-
     while True:
-        number = read_decimal_or_stop("Введите число (или stop): ")
+        number = read_number("Введите число (или stop): ")
         if number is None:
             break
-
-        try:
-            result = sqrt_decimal(number)
-        except ArithmeticError as exc:
-            out(f"Ошибка: {exc}.")
-            logging.warning("Ошибка извлечения корня: sqrt(%s)", number)
+        if number < 0:
+            out("Ошибка: корень из отрицательного числа не существует.")
+            logging.warning("Попытка извлечь корень из %s", number)
             continue
 
-        expression = f"sqrt({format_number(number)})"
-        show_step(expression, result)
+        try:
+            result = number.sqrt()
+        except ArithmeticError as error:
+            out(f"Ошибка: {error}.")
+            logging.warning("Ошибка извлечения корня: %s", error)
+            continue
+
+        show_step(f"sqrt({format_number(number)})", result)
 
 
-def run_self_test() -> None:
-    """Проверка работы программы без ввода: вычисления и история."""
-    out("=== САМОТЕСТ ===")
+def run_self_test():
+    """Проверяет основные вычисления и запись истории."""
     a, b = Decimal("2.5"), Decimal("3")
-    out(f"{a} + {b} = {add(a, b)}")
-    out(f"{a} - {b} = {subtract(a, b)}")
-    out(f"{a} * {b} = {multiply(a, b)}")
-    out(f"{a} / {b} = {divide(a, b)}")
-    out(f"{a} ^ {b} = {power(a, b)}")
-    out(f"sqrt({a}) = {sqrt_decimal(a)}")
-    try:
-        divide(a, Decimal("0"))
-    except ZeroDivisionError as exc:
-        out(f"OK: поймано деление на ноль — {exc}")
+    tests = [
+        ("Сложение", a + b),
+        ("Вычитание", a - b),
+        ("Умножение", a * b),
+        ("Деление", a / b),
+        ("Степень", a ** b),
+        ("Корень", a.sqrt()),
+    ]
 
-    append_history("самотест 2.5 + 3", add(a, b))
+    out("=== САМОТЕСТ ===")
+    for name, result in tests:
+        out(f"{name}: {format_number(result)}")
+
+    try:
+        calculate("/", a, Decimal("0"))
+    except ZeroDivisionError:
+        out("OK: деление на ноль обработано.")
+
+    save_history("самотест 2.5 + 3", a + b)
     out("История после записи:")
     show_history()
     out("=== САМОТЕСТ ЗАВЕРШЁН ===")
 
 
-def main() -> None:
+def main():
+    """Главный цикл программы."""
     if "--test" in sys.argv:
         run_self_test()
         return
 
+    actions = {
+        "5": show_history,
+        "6": clear_history,
+        "7": run_power_operation,
+        "8": run_sqrt_operation,
+    }
+
     out("Добро пожаловать в консольный калькулятор!")
+
     while True:
         out(MENU)
-        sys.stdout.write("Выберите пункт меню: ")
-        sys.stdout.flush()
-        choice = sys.stdin.readline()
-        if choice == "":
-            out("\nВвод закрыт. Выход.")
-            break
-        choice = choice.strip()
+        choice = input("Выберите пункт меню: ").strip()
 
         if choice == "0":
             out("До свидания!")
             break
-        if choice == "1":
-            run_binary_operation("Сложение", "+", add)
-        elif choice == "2":
-            run_binary_operation("Вычитание", "-", subtract)
-        elif choice == "3":
-            run_binary_operation("Умножение", "*", multiply)
-        elif choice == "4":
-            run_binary_operation("Деление", "/", divide)
-        elif choice == "5":
-            show_history()
-        elif choice == "6":
-            clear_history()
-        elif choice == "7":
-            run_power_operation()
-        elif choice == "8":
-            run_sqrt_operation()
+
+        if choice in BINARY_OPERATIONS:
+            name, symbol, function = BINARY_OPERATIONS[choice]
+            run_binary_operation(name, symbol, function)
+        elif choice in actions:
+            actions[choice]()
         else:
             out("Ошибка: выберите пункт из меню (0–8).")
 
@@ -341,7 +280,7 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, EOFError):
         out("\nВыход из программы.")
     except Exception:
         logging.exception("Непредвиденная ошибка")
