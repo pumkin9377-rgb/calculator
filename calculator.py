@@ -6,6 +6,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation, getcontext
 from pathlib import Path
 
+
 getcontext().prec = 28
 
 HISTORY_FILE = Path("history.txt")
@@ -13,7 +14,7 @@ LOG_FILE = Path("calculator.log")
 
 logging.basicConfig(
     filename=LOG_FILE,
-    level=logging.INFO,
+    level=logging.INFO, #INFO, WARNING, ERROR, CRITICAL
     format="%(asctime)s | %(levelname)s | %(message)s",
     encoding="utf-8",
 )
@@ -286,3 +287,4 @@ if __name__ == "__main__":
         logging.exception("Непредвиденная ошибка")
         out("Произошла непредвиденная ошибка. Подробности в calculator.log.")
         raise
+
